@@ -26,6 +26,7 @@ case "$1" in
 	    echo "ERROR: No volume id provided. Please Provide a volume id"
 	    phelp 1
 	fi
+	VOLUME_ID=$2
 	echo "Doing the thing"
 	if [ -z "$3" ]; then
 	    echo "ERROR: No dir provided. Please provide a directory"
