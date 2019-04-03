@@ -41,7 +41,7 @@ case "$1" in
     *) DIR=$1
 esac
 
-dir_size=`du -sg ec2-backup/ | grep -oE "^[0-9]+"`
+dir_size=`du -sg $DIR | grep -oE "^[0-9]+"`
 
 if [ -z $VOLUME_ID ]; then
     gen_volume
