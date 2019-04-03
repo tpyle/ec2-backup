@@ -1,0 +1,93 @@
+#!/bin/bash
+
+phelp () {
+    echo -e "NAME\n\tec2-backup-v1 -- backup a directory into Elastic Block Storage (EBS)\n"
+    echo -e "USAGE\n\tec2-backup-v1 [-h] -v <volume-id>\n"
+    echo -e "OPTIONS\n\tec2-backup-v1 accepts the following command-line flags:"
+    echo -e "\t-h            Print a usage statement and exit."
+    echo -e "\t-v volume-id  Use the given volume instead of creating a new one."
+    if [ -z $1 ]; then
+	exit 1
+    fi
+    exit $1
+}
+
+dothething () {
+    VOLUME=$1
+    # Where is the volume?
+    REGION=""
+    ZONE=""
+
+    declare -a regions=("us-east-1" "us-west-1" "us-west-2" "eu-central-1" "eu-west-1" "ap-southeast-1" "ap-southeast-2" "ap-northeast-1" "sa-east-1")
+
+    # Iterate over all possible regions
+    for region in "${regions[@]}"
+    do
+	ZONE=`aws ec2 describe-volumes --filter "Name=volume-id,Values=$VOLUME" --query Volumes[].AvailabilityZone --output text --region $region`
+	if [[ ! -z "$ZONE" ]]; then
+	    REGION=$region
+	    break
+	fi
+    done
+
+    # Did we get it?
+    if [ -z $REGION ]; then
+	# Nope
+	echo "ERROR: $VOLUME is not in a supported region."
+	echo "Should be in ${regions[*]}"
+	exit 1
+    fi
+    
+    # What ami should we use?
+    AMI=''
+    case "$ZONE" in
+	us-east-1* )      AMI='ami-bc8fc8d6';;
+	us-west-1* )      AMI='ami-7b0b621b';;
+	us-west-2* )      AMI='ami-9c9f8ffd';;
+	eu-central-1* )   AMI='ami-32e6f45e';;
+	eu-west-1* )      AMI='ami-ac983ddf';;
+	ap-southeast-1* ) AMI='ami-c8ea2bab';;
+	ap-southeast-2* ) AMI='ami-8a89d0e9';;
+	ap-northeast-1* ) AMI='ami-d7eeccb9';;
+	sa-east-1* )      AMI='ami-51d0553d';;
+	*) echo "ERROR: No AMI for zone $ZONE"
+	   exit 1;;
+    esac
+    
+    # Create an Instance
+    INSTANCE=`aws ec2 run-instances --image $AMI --placement "AvailabilityZone=$ZONE" --count 1 --instance-type t1.micro --key-name ec2-backup --output text --region $REGION | awk -F '[\t]' '/INSTANCES/{print $8}'`
+    sleep 40
+    DNS=`aws ec2 describe-instances --filter "Name=instance-id,Values=$INSTANCE" --query "Reservations[*].Instances[*].PublicDnsName" --output text --region $REGION`
+    
+    # Attach the Volume
+    OUTPUT=`aws ec2 attach-volume --device "/dev/sdz" --instance-id $INSTANCE --volume-id $VOLUME --output text --region $REGION | grep error`
+    if [ -z "$OUTPUT" ]; then
+	sleep 40
+	# SSH There & Display Disk Label
+	ssh -q $DNS "/sbin/disklabel /dev/xbd2"
+
+	#d_disk_label=mount | grep -Eo "^/dev/(\w+)" | grep -Eo "\w+$" | xargs -L 1 disklabel
+    else
+	echo "ERROR: Failed to attach Volume $ to instance $"
+	RES=`aws ec2 terminate-instances --instances-ids $INSTANCE --region $REGION --output text`
+	exit 1
+    fi
+    
+}
+
+if [ -z $1 ]; then
+    phelp 1
+fi
+
+case "$1" in
+    "-h" ) phelp 0;;
+    "-v" )
+	if [ -z $2 ]; then
+	    echo "ERROR: No volume id provided. Please Provide a volume id"
+	    phelp 1
+	fi
+	dothething $2
+	;;
+    *) echo "ERROR: Unrecognized Parameter $1."
+       phelp 1;;
+esac
