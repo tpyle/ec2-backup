@@ -1,1 +1,39 @@
 #!/bin/sh
+
+phelp () {
+    echo -e "NAME\n\tec2-backup -- backup a directory into Elastic Block Storage (EBS)\n"
+    echo -e "USAGE\n\tec2-backup [-h] [-v <volume-id>] <dir>\n"
+    echo -e "OPTIONS\n\tec2-backup-v1 accepts the following command-line flags:"
+    echo -e "\t-h            Print a usage statement and exit."
+    echo -e "\t-v volume-id  Use the given volume instead of creating a new one."
+    if [ -z $1 ]; then
+	exit 1
+    fi
+    exit $1
+}
+
+if [ -z "$1" ]; then
+    phelp 1
+fi
+
+DIR=""
+VOLUME_ID=""
+
+case "$1" in
+    "-h" ) phelp 0;;
+    "-v" )
+	if [ -z "$2" ]; then
+	    echo "ERROR: No volume id provided. Please Provide a volume id"
+	    phelp 1
+	fi
+	echo "Doing the thing"
+	if [ -z "$3" ]; then
+	    echo "ERROR: No dir provided. Please provide a directory"
+	    phelp 1
+	fi
+	DIR=$3
+	;;
+    *) DIR=$1
+esac
+
+echo $DIR $VOLUME_ID
