@@ -12,6 +12,10 @@ phelp () {
     exit $1
 }
 
+gen_volume () {
+    VOLUME_ID="fak-vol"
+}
+
 if [ -z "$1" ]; then
     phelp 1
 fi
@@ -37,4 +41,10 @@ case "$1" in
     *) DIR=$1
 esac
 
-echo $DIR $VOLUME_ID
+dir_size=`du -sg ec2-backup/ | grep -oE "^[0-9]+"`
+
+if [ -z $VOLUME_ID ]; then
+    gen_volume
+fi
+
+echo $DIR $dir_size $VOLUME_ID
