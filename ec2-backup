@@ -16,6 +16,26 @@ gen_volume () {
     VOLUME_ID="fak-vol"
 }
 
+lookup_volume () {
+    # I apologize for my jank way of making an array
+    arr=$(echo -e "us-east-1\nus-west-1\nus-west-2\neu-central-1\neu-west-1\nap-southeast-1\nap-southeast-2\nap-northeast-1\nsa-east-1")
+    for region in $arr
+    do
+	# Lookup the volume ($VOLUME) in the given region ($region)
+	__t_ZONE=`aws ec2 describe-volumes --filter "Name=volume-id,Values=$VOLUME_ID" --query Volumes[].AvailabilityZone --output text --region $region 2>/dev/null`
+	ret=$?
+	if [ $ret -ne 0 ]; then
+	    echo "ERROR: Failed to lookup volume. awscli threw '$?'"
+	    exit $ret
+	fi
+	if [ ! -z "$__t_ZONE" ]; then
+	    ZONE=$__t_ZONE
+	    REGION=$region
+	    break
+	fi
+    done
+}
+
 if [ -z "$1" ]; then
     phelp 1
 fi
@@ -31,7 +51,6 @@ case "$1" in
 	    phelp 1
 	fi
 	VOLUME_ID=$2
-	echo "Doing the thing"
 	if [ -z "$3" ]; then
 	    echo "ERROR: No dir provided. Please provide a directory"
 	    phelp 1
@@ -41,10 +60,23 @@ case "$1" in
     *) DIR=$1
 esac
 
-dir_size=`du -sg $DIR | grep -oE "^[0-9]+"`
+# set some default regions (overwritten in lookup_volume
+#  if the user provides a volume)
+ZONE="us-east-1a"
+REGION="us-east-1"
+
+dir_size=`du -sg $DIR`
+ret=$?
+if [ $ret -ne 0 ]; then
+    echo "ERROR: Unable to calculate size of directory. See above."
+    exit $ret
+fi
+dir_size=`echo $dir_size | grep -oE "^[0-9]+"`
 
 if [ -z $VOLUME_ID ]; then
     gen_volume
+else
+    lookup_volume
 fi
 
-echo $DIR $dir_size $VOLUME_ID
+echo $DIR $dir_size $VOLUME_ID $ZONE $REGION
