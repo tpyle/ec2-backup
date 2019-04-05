@@ -13,6 +13,7 @@ phelp () {
 }
 
 gen_volume () {
+    #echo $dir_size
     VOLUME_ID="fak-vol"
 }
 
@@ -22,18 +23,30 @@ lookup_volume () {
     for region in $arr
     do
 	# Lookup the volume ($VOLUME) in the given region ($region)
-	__t_ZONE=`aws ec2 describe-volumes --filter "Name=volume-id,Values=$VOLUME_ID" --query Volumes[].AvailabilityZone --output text --region $region 2>/dev/null`
+	if [ ! -z "${EC2_BACKUP_VERBOSE}" ]; then
+	    echo "Lookup: Trying $region for $VOLUME_ID"
+	fi
+	__t_ZONE=`aws ec2 describe-volumes --filter "Name=volume-id,Values=$VOLUME_ID" --query Volumes[].[AvailabilityZone,Size] --output text --region $region 2>/dev/null`
 	ret=$?
 	if [ $ret -ne 0 ]; then
 	    echo "ERROR: Failed to lookup volume. awscli threw '$?'"
 	    exit $ret
 	fi
 	if [ ! -z "$__t_ZONE" ]; then
-	    ZONE=$__t_ZONE
+	    if [ ! -z "${EC2_BACKUP_VERBOSE}" ]; then
+		echo "Lookup: Success! $VOLUME_ID found in $region"
+	    fi
+	    ZONE=`echo $__t_ZONE | awk '{print $1}'`
+	    VOLUME_SIZE=`echo $__t_ZONE | awk '{print $2}'`
 	    REGION=$region
-	    break
+	    return
+	fi
+	if [ ! -z "${EC2_BACKUP_VERBOSE}" ]; then
+	    echo "Lookup: $VOLUME_ID not found in $region"
 	fi
     done
+    echo "ERROR: Volume does not exist, or is not in a supported region. See ec2-backup --regions to find all supported regions."
+    exit 1
 }
 
 if [ -z "$1" ]; then
@@ -45,6 +58,10 @@ VOLUME_ID=""
 
 case "$1" in
     "-h" ) phelp 0;;
+    "--regions" )
+	echo -e "us-east-1\nus-west-1\nus-west-2\neu-central-1\neu-west-1\nap-southeast-1\nap-southeast-2\nap-northeast-1\nsa-east-1"
+	exit 0
+	;;
     "-v" )
 	if [ -z "$2" ]; then
 	    echo "ERROR: No volume id provided. Please Provide a volume id"
@@ -60,23 +77,56 @@ case "$1" in
     *) DIR=$1
 esac
 
+if [ ! -z "${EC2_BACKUP_VERBOSE}" ]; then
+    echo "Arguments: Given arguments volume: $VOLUME_ID and directory $DIR"
+fi
+
+if [ ! -d $DIR ]; then
+    echo "ERROR: Invalid Directory $DIR"
+    exit 1
+fi
+
 # set some default regions (overwritten in lookup_volume
 #  if the user provides a volume)
 ZONE="us-east-1a"
 REGION="us-east-1"
 
-dir_size=`du -sg $DIR`
+if [ ! -z "${EC2_BACKUP_VERBOSE}" ]; then
+    echo "Disk Utilization: Finding disk usage for $DIR"
+fi
+dir_size=`du -sm $DIR`
 ret=$?
 if [ $ret -ne 0 ]; then
     echo "ERROR: Unable to calculate size of directory. See above."
     exit $ret
 fi
 dir_size=`echo $dir_size | grep -oE "^[0-9]+"`
-
-if [ -z $VOLUME_ID ]; then
-    gen_volume
-else
-    lookup_volume
+if [ ! -z "${EC2_BACKUP_VERBOSE}" ]; then
+    echo "Disk Utilization: Total Disk Utilization for $DIR is $dir_size MB."
 fi
 
-echo $DIR $dir_size $VOLUME_ID $ZONE $REGION
+if [ -z $VOLUME_ID ]; then
+    if [ ! -z "${EC2_BACKUP_VERBOSE}" ]; then
+	echo -e "Volume: Attempting to generate a new volume, \n\twith default zone $ZONE, \n\tand default region $REGION"
+    fi
+    VOLUME_SIZE=`echo "($dir_size*2+1024)/1024" | bc`
+    gen_volume
+    echo $VOLUME_SIZE
+else
+    if [ ! -z "${EC2_BACKUP_VERBOSE}" ]; then
+	echo "Volume: Attempting to lookup $VOLUME_ID for its region and zone"
+    fi
+    lookup_volume
+    if [ ! -z "${EC2_BACKUP_VERBOSE}" ]; then
+	echo "Volume: Found $VOLUME_ID. Checking Size."
+    fi
+    ret=`echo "$VOLUME_SIZE*1024>$dir_size*2" | bc`
+    if [ $ret -eq 0 ]; then
+	echo "ERROR: Volume $VOLUME_ID is not of sufficient size"
+	exit 1
+    fi
+    if [ ! -z "${EC2_BACKUP_VERBOSE}" ]; then
+	echo "Volume: $VOLUME_ID of size $VOLUME_SIZE is sufficiently large"
+    fi
+fi
+
